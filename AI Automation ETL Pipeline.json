@@ -1,0 +1,402 @@
+{
+  "name": "AI Automation ETL Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "File Upload",
+        "formDescription": "Upload the students raw data",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "File Upload",
+              "fieldType": "file"
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "38b2fdd6-47f7-4f6f-b3ed-0975b1023048",
+      "name": "On form submission",
+      "webhookId": "85004fa1-3b69-4561-b555-7f8070915f52"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "File_Upload",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e35bddfb-6c6d-4574-8824-1731f2df6242",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "9cf0d414-671e-4728-9cf0-880c8aeba259",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Clean this student enrollment row and return ONLY a JSON object.\n\nRow data: {{ JSON.stringify($json) }}\n\nRules:\n- Name: Title Case\n- Email: if invalid (no @ or no .com/.in) set INVALID_EMAIL\n- Phone: if less than 10 digits or empty set MISSING\n- Course: only Python or Machine Learning or Data Science\n- Fee_Paid: yes/YES = true, no/NO = false\n- City: Title Case, empty = UNKNOWN\n- Enrolled_Date: YYYY-MM-DD format\nReturn ONLY raw JSON. No explanation. No markdown.",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        624,
+        -336
+      ],
+      "id": "eb0b2218-7046-4523-b49a-c98164785e6b",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        736,
+        -128
+      ],
+      "id": "be3881c5-977f-43ac-83dc-6110499b6eeb",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response =\n  $json.text ??\n  $json.output ??\n  $json.response ??\n  $json.content;\n\nif (!response) {\n  throw new Error('AI returned an empty response');\n}\n\nlet text = String(response).trim();\n\n// Remove markdown if the AI accidentally returns ```json\ntext = text\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\n// Find JSON object\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\n\nif (start === -1 || end === -1) {\n  throw new Error(`AI did not return valid JSON: ${text}`);\n}\n\nconst jsonText = text.substring(start, end + 1);\n\nlet cleaned;\n\ntry {\n  cleaned = JSON.parse(jsonText);\n} catch (error) {\n  throw new Error(`JSON parsing failed: ${jsonText}`);\n}\n\n// Email validation\nconst email = String(cleaned.Email || '').trim();\n\nconst emailValid =\n  email !== '' &&\n  email !== 'INVALID_EMAIL';\n\ncleaned.Email_Status = emailValid\n  ? 'VALID'\n  : 'INVALID';\n\n// City classification\nconst city = String(cleaned.City || '')\n  .trim()\n  .toLowerCase();\n\ncleaned.City_Category =\n  city === 'chennai'\n    ? 'CHENNAI'\n    : 'OTHER';\n\nreturn {\n  json: cleaned\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        -320
+      ],
+      "id": "a056ac85-77b5-4601-b437-9b33e17c99c6",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "32c28982-e6e7-4624-85a1-730e11a7f531",
+              "leftValue": "={{ $json.City_Category }}",
+              "rightValue": "CHENNAI",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        800,
+        80
+      ],
+      "id": "22a04a78-e775-4a5c-bdc7-64be817d8928",
+      "name": "If city"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a58e9fc1-6a6b-4606-b76c-674488e4297e",
+              "leftValue": "={{ $json.Email_Status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1104,
+        -64
+      ],
+      "id": "a465d641-3b27-4218-aa44-2809a7504e30",
+      "name": "If chennai"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8cd04f91-0911-43b1-9e5d-7991db4af726",
+              "leftValue": "={{ $('Code in JavaScript').item.json.Email_Status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        368
+      ],
+      "id": "bd0e456c-6b41-469d-aecb-5aadc2efe14b",
+      "name": "If other"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        -176
+      ],
+      "id": "1cad5ac6-2df0-42f4-82df-aa12d90930ff",
+      "name": "City_Chennai_valid_email"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        32
+      ],
+      "id": "c83fcbb9-442b-4230-a4aa-df801d3d2a81",
+      "name": "Chennai_city_invalid_email"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        240
+      ],
+      "id": "86c35642-0e25-463a-ab60-53404cdca6b8",
+      "name": "Other_city_valid_email"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        464
+      ],
+      "id": "a4f24f26-abf6-4cb0-b30a-7c0da597c1e3",
+      "name": "Other_city_invalid_email"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "If city",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If city": {
+      "main": [
+        [
+          {
+            "node": "If chennai",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If other",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If chennai": {
+      "main": [
+        [
+          {
+            "node": "City_Chennai_valid_email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chennai_city_invalid_email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If other": {
+      "main": [
+        [
+          {
+            "node": "Other_city_valid_email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Other_city_invalid_email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}
